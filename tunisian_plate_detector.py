@@ -480,6 +480,11 @@ def index():
     })
 
 if __name__ == '__main__':
-    # Run Flask app with UTF-8 support
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    # Get port from environment variable (for Render.com compatibility)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
+else:
+    # This will allow importing the app from other files
+    # The app object is already initialized above
+    pass
 
