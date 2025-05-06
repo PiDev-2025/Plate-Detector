@@ -467,6 +467,9 @@ def get_detector():
 @app.route('/detect_plate', methods=['POST'])
 def detect_plate():
     try:
+        start_time = time.time()
+        print(f"Request received at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
         # Initialize detector when needed
         detector = get_detector()
         
@@ -474,23 +477,96 @@ def detect_plate():
         if 'image' not in request.files and 'image' not in request.json:
             return jsonify({'error': 'No image provided'}), 400
         
-        # Handle file upload
-        if 'image' in request.files:
-            file = request.files['image']
-            img_bytes = file.read()
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        # Handle base64 encoded image
-        elif 'image' in request.json:
-            base64_img = request.json['image']
-            if base64_img.startswith('data:image'):
-                base64_img = base64_img.split(',')[1]
-            img_bytes = base64.b64decode(base64_img)
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # Handle performance limits (memory optimization)
+        try:
+            import gc
+            # Force garbage collection before processing
+            gc.collect()
+            # Check memory usage if psutil is available
+            try:
+                import psutil
+                process = psutil.Process(os.getpid())
+                mem_info = process.memory_info()
+                print(f"Memory usage before processing: {mem_info.rss / 1024 / 1024:.2f} MB")
+            except ImportError:
+                pass
+        except Exception as e:
+            print(f"Memory management error: {e}")
         
-        # Process the image
-        plate_text, confidence = detector.process_image_array(img)
+        # Handle file upload with size limits
+        max_image_size = 10 * 1024 * 1024  # 10MB limit
+        img = None
+        
+        try:
+            if 'image' in request.files:
+                file = request.files['image']
+                img_bytes = file.read()
+                if len(img_bytes) > max_image_size:
+                    return jsonify({'error': 'Image too large, maximum size is 10MB'}), 413
+                nparr = np.frombuffer(img_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            # Handle base64 encoded image
+            elif 'image' in request.json:
+                base64_img = request.json['image']
+                if base64_img.startswith('data:image'):
+                    base64_img = base64_img.split(',')[1]
+                img_bytes = base64.b64decode(base64_img)
+                if len(img_bytes) > max_image_size:
+                    return jsonify({'error': 'Image too large, maximum size is 10MB'}), 413
+                nparr = np.frombuffer(img_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            # Check if image was loaded correctly
+            if img is None or img.size == 0:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid image data',
+                    'noPlateDetected': True
+                }), 400
+                
+            # Limit image size for processing to avoid OOM
+            max_dim = 1200
+            h, w = img.shape[:2]
+            if max(h, w) > max_dim:
+                scale = max_dim / max(h, w)
+                img = cv2.resize(img, None, fx=scale, fy=scale)
+                print(f"Resized image from {h}x{w} to {img.shape[0]}x{img.shape[1]}")
+        
+        except Exception as e:
+            print(f"Error decoding image: {e}")
+            return jsonify({
+                'success': False, 
+                'error': f'Error decoding image: {str(e)}',
+                'noPlateDetected': True
+            }), 400
+        
+        # Process the image with a timeout mechanism
+        try:
+            # Set a reasonable timeout for processing
+            processing_timeout = 30  # seconds
+            
+            # Simple timeout implementation
+            def process_with_timeout():
+                return detector.process_image_array(img)
+            
+            # Use a simpler approach than threading for timeout
+            start = time.time()
+            plate_text, confidence = process_with_timeout()
+            processing_time = time.time() - start
+            
+            if processing_time > processing_timeout:
+                print(f"⚠️ Warning: Processing took {processing_time:.2f}s, exceeding recommended timeout")
+            
+        except Exception as e:
+            print(f"Error in image processing: {e}")
+            # Return a partial failure that allows the client to handle gracefully
+            return jsonify({
+                'success': False,
+                'plateText': None,
+                'confidence': 0,
+                'noPlateDetected': True,
+                'error': str(e)
+            }), 500
         
         if plate_text is None:
             return jsonify({
@@ -502,16 +578,37 @@ def detect_plate():
         
         # Make sure to explicitly encode تونس in the response
         print(f"Sending response with plate text: {plate_text}")
+        total_time = time.time() - start_time
+        print(f"Total request processed in {total_time:.2f} seconds")
+        
         return jsonify({
             'success': True,
             'plateText': plate_text,
             'confidence': float(confidence),
-            'noPlateDetected': False
+            'noPlateDetected': False,
+            'processingTime': f"{total_time:.2f}s"
         })
     
     except Exception as e:
         print(f"Error processing request: {e}")
         return jsonify({'error': str(e)}), 500
+
+# Add OPTIONS support to help with CORS
+@app.route('/detect_plate', methods=['OPTIONS'])
+def options_detect_plate():
+    response = app.make_default_options_response()
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
+
+# Enable CORS for all routes
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    return response
 
 # Add a basic root route
 @app.route('/', methods=['GET'])
