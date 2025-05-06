@@ -35,35 +35,13 @@ class TunisianPlateDetector:
                     print(f"CUDA initialization failed: {e}")
                     self.device = 'cpu'
             
-            # Initialize EasyOCR with proper GPU settings
-            gpu_status = True if self.device == 'cuda' else False
-            self.reader = easyocr.Reader(['ar', 'en'], gpu=gpu_status, 
-                                       recog_network='arabic_g1')
-            
-            # Initialize YOLO model for license plate detection if available
+            # Memory optimization: Only initialize components when needed
+            self.reader = None
             self.plate_detector = None
-            if YOLO_AVAILABLE:
-                try:
-                    model_path = os.path.join(os.path.dirname(__file__), "model/license_plate_yolov8n.pt")
-                    if os.path.exists(model_path):
-                        self.plate_detector = YOLO(model_path)
-                        print(f"YOLO model loaded from: {model_path}")
-                    else:
-                        print(f"YOLO model not found at {model_path}. Using general object detection.")
-                        self.plate_detector = YOLO('yolov8n.pt')
-                except Exception as e:
-                    print(f"YOLO initialization failed: {e}")
+            self.plate_cascade = None
             
-            # Always initialize cascade classifier as backup
-            cascade_path = os.path.join(os.path.dirname(__file__), "model/haarcascade_russian_plate_number.xml")
-            if not os.path.exists(cascade_path):
-                cascade_path = cv2.data.haarcascades + "haarcascade_russian_plate_number.xml"
-                
-            if os.path.exists(cascade_path):
-                self.plate_cascade = cv2.CascadeClassifier(cascade_path)
-                print(f"Cascade classifier loaded from: {cascade_path}")
-            else:
-                self.plate_cascade = cv2.CascadeClassifier()
+            # Initialize cascade classifier as it's lightweight
+            self._init_cascade()
             
             # Tunisia letters and patterns
             self.tunisia_letters = ['ت', 'و', 'ن', 'س']
@@ -77,6 +55,53 @@ class TunisianPlateDetector:
         except Exception as e:
             print(f"Error during initialization: {str(e)}")
             sys.exit(1)
+
+    def _init_cascade(self):
+        try:
+            cascade_path = os.path.join(os.path.dirname(__file__), "model/haarcascade_russian_plate_number.xml")
+            if not os.path.exists(cascade_path):
+                cascade_path = cv2.data.haarcascades + "haarcascade_russian_plate_number.xml"
+                
+            if os.path.exists(cascade_path):
+                self.plate_cascade = cv2.CascadeClassifier(cascade_path)
+                print(f"Cascade classifier loaded from: {cascade_path}")
+            else:
+                self.plate_cascade = cv2.CascadeClassifier()
+        except Exception as e:
+            print(f"Error loading cascade: {e}")
+            self.plate_cascade = None
+    
+    def _init_easyocr(self):
+        if self.reader is None:
+            try:
+                print("Initializing EasyOCR...")
+                gpu_status = True if self.device == 'cuda' else False
+                self.reader = easyocr.Reader(['ar', 'en'], gpu=gpu_status, 
+                                           recog_network='arabic_g1')
+                print("EasyOCR initialized successfully")
+            except Exception as e:
+                print(f"EasyOCR initialization failed: {e}")
+                self.reader = None
+                
+    def _init_yolo(self):
+        if not YOLO_AVAILABLE:
+            print("YOLO not available")
+            return
+            
+        if self.plate_detector is None:
+            try:
+                print("Initializing YOLO detector...")
+                model_path = os.path.join(os.path.dirname(__file__), "model/license_plate_yolov8n.pt")
+                if os.path.exists(model_path):
+                    self.plate_detector = YOLO(model_path)
+                    print(f"YOLO model loaded from: {model_path}")
+                else:
+                    print(f"YOLO model not found at {model_path}. Using general object detection.")
+                    self.plate_detector = YOLO('yolov8n.pt')
+                print("YOLO initialized successfully")
+            except Exception as e:
+                print(f"YOLO initialization failed: {e}")
+                self.plate_detector = None
 
     def ensure_image_format(self, img):
         """Make sure image is in the correct format for processing"""
@@ -140,6 +165,7 @@ class TunisianPlateDetector:
     
     def detect_with_yolo(self, img):
         """Detect license plates using YOLO"""
+        self._init_yolo()
         if not YOLO_AVAILABLE or self.plate_detector is None:
             return []
         
@@ -370,6 +396,12 @@ class TunisianPlateDetector:
                 print("No license plates detected")
                 return None, 0.0
                 
+            # Initialize OCR only when needed
+            self._init_easyocr()
+            if self.reader is None:
+                print("Failed to initialize OCR")
+                return None, 0.0
+                
             best_confidence = 0.0
             best_plate_text = None
             
@@ -420,13 +452,24 @@ class TunisianPlateDetector:
             print(f"Error in image processing: {e}")
             return None, 0.0
 
-# Initialize Flask application
+# Initialize Flask application with memory-optimized settings
 app = Flask(__name__)
-detector = TunisianPlateDetector()
+
+# Create detector instance only when needed (lazy loading)
+detector = None
+
+def get_detector():
+    global detector
+    if detector is None:
+        detector = TunisianPlateDetector()
+    return detector
 
 @app.route('/detect_plate', methods=['POST'])
 def detect_plate():
     try:
+        # Initialize detector when needed
+        detector = get_detector()
+        
         # Check if the request contains an image
         if 'image' not in request.files and 'image' not in request.json:
             return jsonify({'error': 'No image provided'}), 400
@@ -476,12 +519,18 @@ def index():
     return jsonify({
         'service': 'Tunisian License Plate Detection API',
         'status': 'active',
-        'sample': '123 تونس 4567'  # Test Arabic encoding
+        'sample': '123 تونس 4567',  # Test Arabic encoding
+        'memory_optimized': True
     })
 
 if __name__ == '__main__':
+    import gc
+    # Force garbage collection to free memory
+    gc.collect()
+    
     # Get port from environment variable (for Render.com compatibility)
     port = int(os.environ.get('PORT', 5000))
+    print(f"Starting server on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
 else:
     # This will allow importing the app from other files

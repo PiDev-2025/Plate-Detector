@@ -1,6 +1,5 @@
-opencv-python>=4.5.0,<4.12.0
+opencv-python-headless>=4.5.0,<4.12.0
 easyocr>=1.6.0
 numpy>=1.20.0
-torch>=1.9.0
+torch>=1.9.0 --extra-index-url https://download.pytorch.org/whl/cpu
 flask>=2.0.0
-gunicorn>=20.1.0
