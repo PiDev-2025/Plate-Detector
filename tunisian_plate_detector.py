@@ -530,8 +530,14 @@ if __name__ == '__main__':
     
     # Get port from environment variable (for Render.com compatibility)
     port = int(os.environ.get('PORT', 5000))
-    print(f"Starting server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    
+    # Print explicit message that Render can detect
+    print(f"Server listening on port {port}")
+    print(f"=> Listening on http://0.0.0.0:{port}")
+    
+    # Start the server - use the werkzeug run method directly for more direct port binding
+    from werkzeug.serving import run_simple
+    run_simple('0.0.0.0', port, app, use_reloader=False, use_debugger=False)
 else:
     # This will allow importing the app from other files
     # The app object is already initialized above
