@@ -3,13 +3,17 @@ Optimized Gunicorn config for Render deployment
 Focus on memory optimization and stability
 """
 import os
-import multiprocessing
+import sys
 
 # Get port from environment variable (critical for Render)
-port = os.environ.get('PORT', '5000')
+port = int(os.environ.get('PORT', '5000'))
+
+# Explicitly print port information for debugging
+print(f"PORT environment variable: {os.environ.get('PORT', 'not set')}")
+print(f"Using port: {port}")
 
 # Server settings
-bind = f"0.0.0.0:{port}"
+bind = f"0.0.0.0:{port}"  # Ensure we bind to the exact port Render expects
 worker_class = "sync"  # Use sync workers for reliability
 workers = 1  # Use just 1 worker for memory-constrained environments
 threads = 2  # Use minimal threads for parallel processing
@@ -44,3 +48,8 @@ def on_starting(server):
     import os
     model_dir = os.path.join(os.path.dirname(__file__), "model")
     os.makedirs(model_dir, exist_ok=True)
+
+def post_fork(server, worker):
+    """Actions after forking a worker."""
+    print(f"Worker {worker.pid} initialized and serving on 0.0.0.0:{port}")
+    sys.stdout.flush()  # Ensure output is displayed in logs
