@@ -602,12 +602,46 @@ def options_detect_plate():
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     return response
 
+# Add a health check endpoint
+@app.route('/health', methods=['GET', 'HEAD'])
+def health_check():
+    """Health check endpoint for monitoring and verifying API availability"""
+    try:
+        # Return basic system information
+        system_info = {
+            'status': 'healthy',
+            'service': 'Tunisian License Plate Detection API',
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'version': '1.1.0',
+        }
+        
+        # Add additional information about the environment
+        system_info['environment'] = {
+            'python_version': sys.version,
+            'cuda_available': torch.cuda.is_available() if torch is not None else False,
+        }
+        
+        # Return a 200 OK response
+        return jsonify(system_info)
+    except Exception as e:
+        print(f"Health check failed: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# Add OPTIONS support for the health endpoint too
+@app.route('/health', methods=['OPTIONS'])
+def options_health():
+    response = app.make_default_options_response()
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
+
 # Enable CORS for all routes
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD')
     return response
 
 # Add a basic root route
@@ -631,6 +665,7 @@ if __name__ == '__main__':
     # Print explicit message that Render can detect
     print(f"Server listening on port {port}")
     print(f"=> Listening on http://0.0.0.0:{port}")
+    print(f"Health check available at: http://0.0.0.0:{port}/health")
     
     # Start the server - use the werkzeug run method directly for more direct port binding
     from werkzeug.serving import run_simple
