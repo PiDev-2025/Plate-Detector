@@ -1,7 +1,12 @@
-opencv-python-headless>=4.5.0,<4.12.0
-easyocr>=1.6.0
-numpy>=1.20.0
-torch>=1.9.0 --extra-index-url https://download.pytorch.org/whl/cpu
-flask>=2.0.0
-gunicorn>=20.1.0
-psutil>=5.9.0
+# Core libraries
+flask==2.0.1
+numpy==1.23.5
+opencv-python-headless==4.8.0.74
+easyocr==1.7.0
+torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
+Pillow==9.5.0
+werkzeug==2.0.2
+gunicorn==20.1.0
+
+# Optional utilities
+psutil==5.9.5
