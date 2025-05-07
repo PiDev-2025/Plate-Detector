@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: parkini-plate-detector
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -c gunicorn_config.py tunisian_plate_detector:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: EASYOCR_MEMORY_EFFICIENT
+        value: "1"
+      - key: USE_STATIC_MODELS
+        value: "1"
+      - key: EASYOCR_DOWNLOAD_ENABLED
+        value: "False"
+    healthCheckPath: /health
